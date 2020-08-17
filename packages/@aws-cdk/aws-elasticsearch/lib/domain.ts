@@ -276,8 +276,8 @@ export interface CognitoOptions {
 
   /**
    * A role that allows Amazon ES to configure your user pool and identity pool. It must have the `AmazonESCognitoAccess` policy attached to it.
-
-@see https://docs.aws.amazon.com/elasticsearch-service/latest/developerguide/es-cognito-auth.html#es-cognito-auth-prereq
+   *
+   * @see https://docs.aws.amazon.com/elasticsearch-service/latest/developerguide/es-cognito-auth.html#es-cognito-auth-prereq
    */
   readonly role: iam.IRole;
 
