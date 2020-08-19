@@ -314,6 +314,16 @@ export interface VpcOptions {
 }
 
 /**
+ * The minimum TLS version required for traffic to the domain.
+ */
+export enum TLSSecurityPolicy {
+  /** Cipher suite TLS 1.0 */
+  TLS_1_0 = 'Policy-Min-TLS-1-0-2019-07',
+  /** Cipher suite TLS 1.2 */
+  TLS_1_2 = 'Policy-Min-TLS-1-2-2019-07'
+}
+
+/**
  * Properties for an AWS Elasticsearch Domain.
  */
 export interface DomainProps {
@@ -419,6 +429,20 @@ export interface DomainProps {
    * @default - VPC not used
    */
   readonly vpcOptions?: VpcOptions;
+
+  /**
+   * True to require that all traffic to the domain arrive over HTTPS.
+   *
+   * @default - false
+   */
+  readonly enforceHttps?: boolean;
+
+  /**
+   * The minimum TLS version required for traffic to the domain.
+   *
+   * @default - TLSSecurityPolicy.TLS_1_0
+   */
+  readonly tlsSecurityPolicy?: TLSSecurityPolicy;
 }
 
 
@@ -1335,6 +1359,10 @@ export class Domain extends DomainBase implements IDomain {
       snapshotOptions: props.automatedSnapshotStartHour
         ? { automatedSnapshotStartHour: props.automatedSnapshotStartHour }
         : undefined,
+      domainEndpointOptions: {
+        enforceHttps: props.enforceHttps ?? false,
+        tlsSecurityPolicy: props.tlsSecurityPolicy ?? TLSSecurityPolicy.TLS_1_0,
+      },
     });
 
     if (logGroupResourcePolicy) { this.domain.node.addDependency(logGroupResourcePolicy); }
