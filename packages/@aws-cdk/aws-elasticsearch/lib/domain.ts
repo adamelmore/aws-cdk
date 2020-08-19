@@ -1026,11 +1026,6 @@ export interface DomainAttributes {
   readonly domainArn: string;
 
   /**
-   * The domain name of the Elasticsearch domain.
-   */
-  readonly domainName: string;
-
-  /**
    * The domain endpoint of the Elasticsearch domain.
    */
   readonly domainEndpoint: string;
@@ -1063,7 +1058,6 @@ export class Domain extends DomainBase implements IDomain {
 
     return Domain.fromDomainAttributes(scope, id, {
       domainArn,
-      domainName,
       domainEndpoint,
     });
   }
@@ -1076,10 +1070,13 @@ export class Domain extends DomainBase implements IDomain {
    * @param attrs A `DomainAttributes` object.
    */
   public static fromDomainAttributes(scope: cdk.Construct, id: string, attrs: DomainAttributes): IDomain {
+    const { domainArn, domainEndpoint } = attrs;
+    const domainName = extractNameFromEndpoint(domainEndpoint);
+
     return new class extends DomainBase {
-      public readonly domainArn = attrs.domainArn;
-      public readonly domainName = attrs.domainName;
-      public readonly domainEndpoint = attrs.domainEndpoint;
+      public readonly domainArn = domainArn;
+      public readonly domainName = domainName;
+      public readonly domainEndpoint = domainEndpoint;
 
       constructor() { super(scope, id); }
     };
