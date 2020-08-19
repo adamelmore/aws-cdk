@@ -5,6 +5,7 @@ import * as ec2 from '@aws-cdk/aws-ec2';
 import * as iam from '@aws-cdk/aws-iam';
 import * as kms from '@aws-cdk/aws-kms';
 import * as logs from '@aws-cdk/aws-logs';
+import * as secretsmanager from '@aws-cdk/aws-secretsmanager';
 import * as cdk from '@aws-cdk/core';
 
 import { CfnDomain } from './elasticsearch.generated';
@@ -324,6 +325,36 @@ export enum TLSSecurityPolicy {
 }
 
 /**
+ * Specifies options for fine-grained access control.
+ */
+export interface AdvancedSecurityOptions {
+  /**
+   * ARN for the master user. Only specify this or masterUserName, but not both.
+   *
+   * @default - fine-grained access control is disabled
+   */
+  readonly masterUserArn?: string;
+
+  /**
+   * Username for the master user. Only specify this or masterUserArn, but not both.
+   *
+   * @default - fine-grained access control is disabled
+   */
+  readonly masterUserName?: string;
+
+  /**
+   * Password for the master user.
+   *
+   * You can use `SecretValue.plainText` to specify a password in plain text or
+   * use `secretsmanager.Secret.fromSecretAttributes` to reference a secret in
+   * Secrets Manager.
+   *
+   * @default - A Secrets Manager generated password
+   */
+  readonly masterUserPasswordSecret?: cdk.SecretValue;
+}
+
+/**
  * Properties for an AWS Elasticsearch Domain.
  */
 export interface DomainProps {
@@ -443,8 +474,16 @@ export interface DomainProps {
    * @default - TLSSecurityPolicy.TLS_1_0
    */
   readonly tlsSecurityPolicy?: TLSSecurityPolicy;
-}
 
+  /**
+   * Specifies options for fine-grained access control.
+   * Requires Elasticsearch version 6.7 or later. Enabling fine-grained access control
+   * will also enable encryption of data at rest and node-to-node encryption.
+   *
+   * @default - fine-grained access control is disabled
+   */
+  readonly advancedSecurity?: AdvancedSecurityOptions;
+}
 
 /**
  * An interface that represents an Elasticsearch domain - either created with the CDK, or an existing one.
@@ -1188,7 +1227,33 @@ export class Domain extends DomainBase implements IDomain {
       throw new Error(`Unknown Elasticsearch version: ${elasticsearchVersion}`);
     }
 
-    const encryptionAtRestEnabled = props.encryptionAtRest?.enabled ?? (props.encryptionAtRest?.kmsKey != null);
+    const masterUserArn = props.advancedSecurity?.masterUserArn;
+    const masterUserName = props.advancedSecurity?.masterUserName;
+
+    const advancedSecurityEnabled = (masterUserArn ?? masterUserName) != null;
+    const internalUserDatabaseEnabled = masterUserName != null;
+    const masterUserPassword =
+      props.advancedSecurity?.masterUserPasswordSecret?.toString() ??
+      internalUserDatabaseEnabled
+        ? new secretsmanager.Secret(this, id, {
+          generateSecretString: {
+            secretStringTemplate: JSON.stringify({
+              username: masterUserName,
+            }),
+            generateStringKey: 'password',
+          },
+        })
+          .secretValueFromJson('password')
+          .toString()
+        : undefined;
+
+    const encryptionAtRestEnabled = advancedSecurityEnabled
+      ? true
+      : props.encryptionAtRest?.enabled ??
+        props.encryptionAtRest?.kmsKey != null;
+    const nodeToNodeEncryptionEnabled = advancedSecurityEnabled
+      ? true
+      : props.nodeToNodeEncryption ?? false;
     const volumeSize = props.ebs?.volumeSize ?? 10;
     const volumeType = props.ebs?.volumeType ?? ec2.EbsDeviceVolumeType.GENERAL_PURPOSE_SSD;
     const ebsEnabled = props.ebs?.enabled ?? true;
@@ -1230,6 +1295,12 @@ export class Domain extends DomainBase implements IDomain {
     if (elasticsearchVersionNum < 6.0) {
       if (props.nodeToNodeEncryption) {
         throw new Error('Node-to-node encryption requires Elasticsearch version 6.0 or later.');
+      }
+    }
+
+    if (elasticsearchVersionNum < 6.7) {
+      if (advancedSecurityEnabled) {
+        throw new Error('Fine-grained access logging requires Elasticsearch version 6.7 or later.');
       }
     }
 
@@ -1314,15 +1385,18 @@ export class Domain extends DomainBase implements IDomain {
       elasticsearchVersion,
       elasticsearchClusterConfig: {
         dedicatedMasterEnabled,
-        dedicatedMasterCount: dedicatedMasterEnabled ? dedicatedMasterCount : undefined,
-        dedicatedMasterType: dedicatedMasterEnabled ? dedicatedMasterType : undefined,
+        dedicatedMasterCount: dedicatedMasterEnabled
+          ? dedicatedMasterCount
+          : undefined,
+        dedicatedMasterType: dedicatedMasterEnabled
+          ? dedicatedMasterType
+          : undefined,
         instanceCount,
         instanceType,
         zoneAwarenessEnabled,
-        zoneAwarenessConfig:
-          zoneAwarenessEnabled
-            ? { availabilityZoneCount }
-            : undefined,
+        zoneAwarenessConfig: zoneAwarenessEnabled
+          ? { availabilityZoneCount }
+          : undefined,
       },
       ebsOptions: {
         ebsEnabled,
@@ -1332,9 +1406,11 @@ export class Domain extends DomainBase implements IDomain {
       },
       encryptionAtRestOptions: {
         enabled: encryptionAtRestEnabled,
-        kmsKeyId: encryptionAtRestEnabled ? props.encryptionAtRest?.kmsKey?.keyId : undefined,
+        kmsKeyId: encryptionAtRestEnabled
+          ? props.encryptionAtRest?.kmsKey?.keyId
+          : undefined,
       },
-      nodeToNodeEncryptionOptions: { enabled: props.nodeToNodeEncryption ?? false },
+      nodeToNodeEncryptionOptions: { enabled: nodeToNodeEncryptionEnabled },
       logPublishingOptions: {
         ES_APPLICATION_LOGS: {
           enabled: this.appLogGroup != null,
@@ -1360,9 +1436,20 @@ export class Domain extends DomainBase implements IDomain {
         ? { automatedSnapshotStartHour: props.automatedSnapshotStartHour }
         : undefined,
       domainEndpointOptions: {
-        enforceHttps: props.enforceHttps ?? false,
+        enforceHttps: advancedSecurityEnabled || props.enforceHttps,
         tlsSecurityPolicy: props.tlsSecurityPolicy ?? TLSSecurityPolicy.TLS_1_0,
       },
+      advancedSecurityOptions: advancedSecurityEnabled
+        ? {
+          enabled: true,
+          internalUserDatabaseEnabled,
+          masterUserOptions: {
+            masterUserArn: masterUserArn,
+            masterUserName: masterUserName,
+            masterUserPassword: masterUserPassword,
+          },
+        }
+        : undefined,
     });
 
     if (logGroupResourcePolicy) { this.domain.node.addDependency(logGroupResourcePolicy); }
