@@ -10,9 +10,14 @@ class TestStack extends Stack {
 
     new es.Domain(this, 'Domain', {
       version: es.ElasticsearchVersion.V7_1,
-      advancedSecurity: {
+      fineGrainedAccessControl: {
         masterUserArn: user.userArn,
       },
+      encryptionAtRest: {
+        enabled: true,
+      },
+      nodeToNodeEncryption: true,
+      enforceHttps: true,
     });
   }
 }

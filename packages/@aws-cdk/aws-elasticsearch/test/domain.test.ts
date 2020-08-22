@@ -432,9 +432,14 @@ describe('advanced security options', () => {
   test('enable fine-grained access logging with a master user ARN', () => {
     new Domain(stack, 'Domain', {
       version: ElasticsearchVersion.V7_1,
-      advancedSecurity: {
+      fineGrainedAccessControl: {
         masterUserArn,
       },
+      encryptionAtRest: {
+        enabled: true,
+      },
+      nodeToNodeEncryption: true,
+      enforceHttps: true,
     });
 
     expect(stack).toHaveResourceLike('AWS::Elasticsearch::Domain', {
@@ -460,10 +465,15 @@ describe('advanced security options', () => {
   test('enable fine-grained access logging with a master user name and password', () => {
     new Domain(stack, 'Domain', {
       version: ElasticsearchVersion.V7_1,
-      advancedSecurity: {
+      fineGrainedAccessControl: {
         masterUserName,
         masterUserPasswordSecret,
       },
+      encryptionAtRest: {
+        enabled: true,
+      },
+      nodeToNodeEncryption: true,
+      enforceHttps: true,
     });
 
     expect(stack).toHaveResourceLike('AWS::Elasticsearch::Domain', {
@@ -507,10 +517,57 @@ describe('advanced security options', () => {
   test('enabling fine-grained access logging throws with Elasticsearch < 6.7', () => {
     expect(() => new Domain(stack, 'Domain', {
       version: ElasticsearchVersion.V6_5,
-      advancedSecurity: {
+      fineGrainedAccessControl: {
         masterUserArn,
       },
+      encryptionAtRest: {
+        enabled: true,
+      },
+      nodeToNodeEncryption: true,
+      enforceHttps: true,
     })).toThrow(/Fine-grained access logging requires Elasticsearch version 6\.7 or later/);
+  });
+
+  test('enabling fine-grained access logging throws without node-to-node encryption enabled', () => {
+    expect(() => new Domain(stack, 'Domain', {
+      version: ElasticsearchVersion.V7_7,
+      fineGrainedAccessControl: {
+        masterUserArn,
+      },
+      encryptionAtRest: {
+        enabled: true,
+      },
+      nodeToNodeEncryption: false,
+      enforceHttps: true,
+    })).toThrow(/Node-to-node encryption is required when fine-grained access control is enabled/);
+  });
+
+  test('enabling fine-grained access logging throws without encryption-at-rest enabled', () => {
+    expect(() => new Domain(stack, 'Domain', {
+      version: ElasticsearchVersion.V7_7,
+      fineGrainedAccessControl: {
+        masterUserArn,
+      },
+      encryptionAtRest: {
+        enabled: false,
+      },
+      nodeToNodeEncryption: true,
+      enforceHttps: true,
+    })).toThrow(/Encryption-at-rest is required when fine-grained access control is enabled/);
+  });
+
+  test('enabling fine-grained access logging throws without enforceHttps enabled', () => {
+    expect(() => new Domain(stack, 'Domain', {
+      version: ElasticsearchVersion.V7_7,
+      fineGrainedAccessControl: {
+        masterUserArn,
+      },
+      encryptionAtRest: {
+        enabled: true,
+      },
+      nodeToNodeEncryption: true,
+      enforceHttps: false,
+    })).toThrow(/Enforce HTTPS is required when fine-grained access control is enabled/);
   });
 });
 

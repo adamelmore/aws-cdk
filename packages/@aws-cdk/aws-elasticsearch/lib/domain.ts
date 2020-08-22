@@ -478,11 +478,12 @@ export interface DomainProps {
   /**
    * Specifies options for fine-grained access control.
    * Requires Elasticsearch version 6.7 or later. Enabling fine-grained access control
-   * will also enable encryption of data at rest and node-to-node encryption.
+   * also requires encryption of data at rest and node-to-node encryption, along with
+   * enforced HTTPS.
    *
    * @default - fine-grained access control is disabled
    */
-  readonly advancedSecurity?: AdvancedSecurityOptions;
+  readonly fineGrainedAccessControl?: AdvancedSecurityOptions;
 }
 
 /**
@@ -1227,13 +1228,13 @@ export class Domain extends DomainBase implements IDomain {
       throw new Error(`Unknown Elasticsearch version: ${elasticsearchVersion}`);
     }
 
-    const masterUserArn = props.advancedSecurity?.masterUserArn;
-    const masterUserName = props.advancedSecurity?.masterUserName;
+    const masterUserArn = props.fineGrainedAccessControl?.masterUserArn;
+    const masterUserName = props.fineGrainedAccessControl?.masterUserName;
 
     const advancedSecurityEnabled = (masterUserArn ?? masterUserName) != null;
     const internalUserDatabaseEnabled = masterUserName != null;
     const masterUserPassword =
-      props.advancedSecurity?.masterUserPasswordSecret?.toString() ??
+      props.fineGrainedAccessControl?.masterUserPasswordSecret?.toString() ??
       internalUserDatabaseEnabled
         ? new secretsmanager.Secret(this, id, {
           generateSecretString: {
@@ -1247,16 +1248,13 @@ export class Domain extends DomainBase implements IDomain {
           .toString()
         : undefined;
 
-    const encryptionAtRestEnabled = advancedSecurityEnabled
-      ? true
-      : props.encryptionAtRest?.enabled ??
-        props.encryptionAtRest?.kmsKey != null;
-    const nodeToNodeEncryptionEnabled = advancedSecurityEnabled
-      ? true
-      : props.nodeToNodeEncryption ?? false;
+    const encryptionAtRestEnabled =
+      props.encryptionAtRest?.enabled ?? props.encryptionAtRest?.kmsKey != null;
+    const nodeToNodeEncryptionEnabled = props.nodeToNodeEncryption ?? false;
     const volumeSize = props.ebs?.volumeSize ?? 10;
     const volumeType = props.ebs?.volumeType ?? ec2.EbsDeviceVolumeType.GENERAL_PURPOSE_SSD;
     const ebsEnabled = props.ebs?.enabled ?? true;
+    const enforceHttps = props.enforceHttps;
 
     function isInstanceType(t: string): Boolean {
       return dedicatedMasterType.startsWith(t) || instanceType.startsWith(t);
@@ -1322,6 +1320,20 @@ export class Domain extends DomainBase implements IDomain {
     // https://aws.amazon.com/elasticsearch-service/pricing/
     if (!ebsEnabled && !isEveryInstanceType('r3', 'i3')) {
       throw new Error('EBS volumes are required for all instance types except R3 and I3.');
+    }
+
+    // Fine-grained access control requires node-to-node encryption, encryption at rest,
+    // and enforced HTTPS.
+    if (advancedSecurityEnabled) {
+      if (!nodeToNodeEncryptionEnabled) {
+        throw new Error('Node-to-node encryption is required when fine-grained access control is enabled.');
+      }
+      if (!encryptionAtRestEnabled) {
+        throw new Error('Encryption-at-rest is required when fine-grained access control is enabled.');
+      }
+      if (!enforceHttps) {
+        throw new Error('Enforce HTTPS is required when fine-grained access control is enabled.');
+      }
     }
 
     let cfnVpcOptions: CfnDomain.VPCOptionsProperty | undefined;
@@ -1436,7 +1448,7 @@ export class Domain extends DomainBase implements IDomain {
         ? { automatedSnapshotStartHour: props.automatedSnapshotStartHour }
         : undefined,
       domainEndpointOptions: {
-        enforceHttps: advancedSecurityEnabled || props.enforceHttps,
+        enforceHttps,
         tlsSecurityPolicy: props.tlsSecurityPolicy ?? TLSSecurityPolicy.TLS_1_0,
       },
       advancedSecurityOptions: advancedSecurityEnabled
