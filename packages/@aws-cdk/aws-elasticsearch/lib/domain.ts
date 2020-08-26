@@ -1233,10 +1233,10 @@ export class Domain extends DomainBase implements IDomain {
 
     const advancedSecurityEnabled = (masterUserArn ?? masterUserName) != null;
     const internalUserDatabaseEnabled = masterUserName != null;
-    const masterUserPassword =
-      props.fineGrainedAccessControl?.masterUserPasswordSecret?.toString() ??
-      internalUserDatabaseEnabled
-        ? new secretsmanager.Secret(this, id, {
+    const masterUserPasswordString =    
+      props.fineGrainedAccessControl?.masterUserPasswordSecret?.toString()
+    function createMasterUserPasswordSecret(): string {
+       new secretsmanager.Secret(this, id, {
           generateSecretString: {
             secretStringTemplate: JSON.stringify({
               username: masterUserName,
@@ -1246,7 +1246,9 @@ export class Domain extends DomainBase implements IDomain {
         })
           .secretValueFromJson('password')
           .toString()
-        : undefined;
+    const masterUserPassword =
+      masterUserPasswordString ??
+      internalUserDatabaseEnabled ? createMasterUserPasswordSecret() : undefined;
 
     const encryptionAtRestEnabled =
       props.encryptionAtRest?.enabled ?? props.encryptionAtRest?.kmsKey != null;
